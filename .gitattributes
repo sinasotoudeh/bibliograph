@@ -1,0 +1,28 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Explicit LF for scripts and configs (Docker / Linux)
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.env.example   text eol=lf
+*.dockerfile    text eol=lf
+Dockerfile      text eol=lf
+
+# Source code
+*.go            text eol=lf
+*.py            text eol=lf
+*.ts            text eol=lf
+*.js            text eol=lf
+*.json          text eol=lf
+
+# Make sure binaries are never touched
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.zip           binary
+*.gz            binary
+*.tar           binary
+*.tgz           binary
+*.archive       binary
