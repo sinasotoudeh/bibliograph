@@ -1,0 +1,132 @@
+﻿############################################
+# 🔒 Secrets & Environment Variables
+############################################
+.env*
+!.env.example
+!.env.sample
+
+*.key
+*.pem
+*.crt
+*.pfx
+secrets.*
+config.local.*
+
+############################################
+# 🧠 Backups (CRITICAL – NEVER COMMIT)
+############################################
+backups/
+docker-volume-backups/
+docker-logical-backups/
+docker-image-backups/
+
+*.tar
+*.tar.gz
+*.tgz
+*.sql
+*.archive.gz
+
+############################################
+# 🐳 Docker Runtime Artifacts
+############################################
+**/data/
+**/logs/
+**/tmp/
+**/run/
+
+############################################
+# 📦 node / frontend
+############################################
+node_modules/
+.pnpm/
+.pnpm-store/
+dist/
+build/
+.next/
+.turbo/
+.cache/
+
+############################################
+# 🐍 Python
+############################################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+############################################
+# 🗄 Databases / Local Data
+############################################
+*.db
+*.sqlite
+*.sqlite3
+*.rdb
+
+############################################
+# 📊 Observability Runtime Data
+############################################
+loki-data/
+prometheus-data/
+grafana-data/
+
+############################################
+# 📈 Elasticsearch / Mongo / Redis Local Data
+############################################
+mongo/
+elasticsearch/
+redis/
+
+############################################
+# 🧪 ML / Data Processing Outputs
+############################################
+writers total/
+processed/
+unprocessed/
+
+############################################
+# 🧠 IDE / OS
+############################################
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+.DS_Store
+Thumbs.db
+
+############################################
+# 🪵 Logs
+############################################
+*.log
+logs/
+
+############################################
+# ✅ Explicitly Keep (Documentation)
+############################################
+!docs/**
+!infrastructure/**
+!docker-compose*.yml
+!Dockerfile*
+!Makefile
+############################################
+# 🔒 Environment Files (ABSOLUTE NO)
+############################################
+**/.env
+**/.env.*
+!.env.example
+!.env.sample
+
+############################################
+# 🧱 Build / Binary / Artifacts
+############################################
+*.exe
+*.exe~
+*.zip
+*.tar
+*.tar.gz
+
+############################################
+# 🧠 VSCode (service-specific)
+############################################
+**/.vscode/launch.json

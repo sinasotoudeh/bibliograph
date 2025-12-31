@@ -1,0 +1,136 @@
+﻿version: '3.9'
+
+services:
+  # Database Services
+  postgres:
+    image: postgres:16-alpine
+    container_name: bibliograph_postgres
+    environment:
+      POSTGRES_USER: bibliograph
+      POSTGRES_PASSWORD: bibliograph_dev_2024
+      POSTGRES_DB: bibliograph_db
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+      LANG: en_US.utf8
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - bibliograph-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bibliograph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    container_name: bibliograph-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: bibliograph
+      MONGO_INITDB_ROOT_PASSWORD: bibliograph_dev_2024
+      MONGO_INITDB_DATABASE: bibliograph_analytics
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    networks:
+      - bibliograph-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bibliograph-redis
+    command: redis-server --appendonly yes --requirepass bibliograph_dev_2024
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bibliograph-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: bibliograph-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: bibliograph
+      RABBITMQ_DEFAULT_PASS: bibliograph_dev_2024
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - bibliograph-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: bibliograph-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bibliograph
+      MINIO_ROOT_PASSWORD: bibliograph_dev_2024
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - bibliograph-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Application Service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bibliograph-app
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_URL=postgresql://bibliograph:bibliograph_dev_2024@postgres:5432/bibliograph_db?schema=public
+      - REDIS_URL=redis://:bibliograph_dev_2024@redis:6379
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bibliograph-network
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mongo_data:
+  mongo_config:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
+
+networks:
+  bibliograph-network:
+    driver: bridge

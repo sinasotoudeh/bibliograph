@@ -1,0 +1,110 @@
+groups:
+  - name: bibliograph_scraping_alerts
+    rules:
+      # === INFRASTRUCTURE ALERTS ===
+      
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: redis
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 2 minutes."
+          
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: postgresql
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL has been down for more than 2 minutes."
+          
+      - alert: ElasticsearchDown
+        expr: up{job="elasticsearch"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: elasticsearch
+        annotations:
+          summary: "Elasticsearch is down"
+          description: "Elasticsearch has been down for more than 2 minutes."
+
+      # === APPLICATION ALERTS ===
+      
+      - alert: ScraperAPIDown
+        expr: up{job="scraper-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: scraper-api
+        annotations:
+          summary: "Scraper API is down"
+          description: "Scraper API has been down for more than 1 minute."
+          
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: scraper-api
+        annotations:
+          summary: "High error rate in Scraper API"
+          description: "Error rate is above 10% for 5 minutes."
+
+      # === SCRAPING SPECIFIC ALERTS ===
+      
+      - alert: ScrapingJobStuck
+        expr: scraping_job_duration_seconds > 3600
+        for: 10m
+        labels:
+          severity: warning
+          service: scraping
+        annotations:
+          summary: "Scraping job running too long"
+          description: "Job {{ $labels.job_name }} has been running for over 1 hour."
+          
+      - alert: LowScrapingRate
+        expr: rate(books_scraped_total[10m]) < 0.1
+        for: 15m
+        labels:
+          severity: warning
+          service: scraping
+        annotations:
+          summary: "Low scraping rate detected"
+          description: "Books scraped per minute is below 0.1 for 15 minutes."
+          
+      - alert: HighDuplicateRate
+        expr: rate(books_duplicates_total[10m]) / rate(books_scraped_total[10m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: scraping
+        annotations:
+          summary: "High duplicate rate in scraping"
+          description: "Duplicate rate is above 80% for 10 minutes."
+
+      # === RESOURCE ALERTS ===
+      
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.container_label_com_docker_compose_service }}"
+        annotations:
+          summary: "High memory usage"
+          description: "Container {{ $labels.container_label_com_docker_compose_service }} is using more than 90% memory."
+          
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: "{{ $labels.container_label_com_docker_compose_service }}"
+        annotations:
+          summary: "High CPU usage"
+          description: "Container {{ $labels.container_label_com_docker_compose_service }} is using more than 80% CPU."

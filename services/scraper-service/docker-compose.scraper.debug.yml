@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # === SCRAPER API SERVICE (DEBUG MODE) ===
+  scraper-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: bibliograph-scraper-api-debug
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "8082:8000"
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - playwright-cache:/root/.cache/ms-playwright
+    networks:
+      - bibliograph-network
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/v1/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # === سایر سرویس‌ها (بدون تغییر در دستور اجرا، اما با پورت دیباگ اختصاصی در صورت نیاز) ===
+
+  # === CELERY WORKER (Standard Run) ===
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: bibliograph-celery-worker-debug
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    command: [ "python", "-m", "debugpy", "--listen", "0.0.0.0:5679", "--wait-for-client", "-m", "celery", "-A", "src.tasks.celery_app", "worker", "-Q", "scraping", "--loglevel=info", "--pool=solo", "--concurrency=1", "--max-tasks-per-child=100", "--task-events" ]
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - playwright-cache:/root/.cache/ms-playwright
+      - prometheus-multiproc:/tmp/prometheus_multiproc
+    networks:
+      - bibliograph-network
+    restart: unless-stopped
+
+  # === CELERY BEAT (Scheduler) ===
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: bibliograph-celery-beat-debug
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+    command: >
+      celery -A src.tasks.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    networks:
+      - bibliograph-network
+    restart: unless-stopped
+
+  # === FLOWER (Celery Monitoring) ===
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: bibliograph-flower-debug
+    env_file:
+      - .env
+    command: >
+      celery -A src.tasks.celery_app flower --port=5555 --basic_auth=admin:bibliograph_flower_2024
+    ports:
+      - "5555:5555"
+    depends_on:
+      - celery-worker
+    networks:
+      - bibliograph-network
+    restart: unless-stopped
+
+networks:
+  bibliograph-network:
+    external: true
+
+volumes:
+  playwright-cache:
+    driver: local
+  prometheus-multiproc:
+    driver: local

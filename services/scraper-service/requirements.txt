@@ -1,0 +1,62 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Async & Tasks
+celery==5.3.4
+flower==2.0.1
+redis==5.0.1
+
+# Scraping
+scrapy==2.11.0
+playwright==1.40.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+httpx==0.25.2
+requests==2.31.0
+
+# Database
+sqlalchemy==2.0.23
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+motor==3.3.2  # MongoDB async
+pymongo==4.6.0
+
+# Search & Cache
+elasticsearch==8.11.0
+redis==5.0.1
+minio==7.2.0
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+python-dateutil==2.8.2
+jdatetime==4.1.1  # برای تاریخ جلالی
+
+# Persian Text Processing
+parsivar==0.2.3
+
+# Logging & Monitoring
+structlog==23.2.0
+python-json-logger==2.0.7
+prometheus-client==0.21.0
+sentry-sdk==1.39.1
+
+# Utils
+python-dotenv==1.0.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+tenacity==8.2.3  # برای retry logic
+
+# Testing (optional for dev)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+faker==20.1.0
+
+# Code Quality
+black==23.12.0
+flake8==6.1.0
+mypy==1.7.1

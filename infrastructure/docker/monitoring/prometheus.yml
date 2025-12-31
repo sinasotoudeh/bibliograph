@@ -1,0 +1,109 @@
+# Prometheus Configuration for BiblioGraph AI Scraping System
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  
+  external_labels:
+    cluster: 'bibliograph-dev'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alert_rules.yml"
+
+# Scrape configuration
+scrape_configs:
+  # ============================================
+  # CORE INFRASTRUCTURE
+  # ============================================
+  
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 5s
+
+  - job_name: 'bibliograph-worker'
+    scrape_interval: 5s # سریعتر اسکرپ کن تا پیشرفت زنده تر باشه
+    static_configs:
+      - targets: ['bibliograph-celery-worker:8001'] # <--- ن
+        labels:
+          service: 'celery-worker'
+  # ============================================
+  # EXPORTERS
+  # ============================================
+  
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['bibliograph-redis-exporter:9121']
+    scrape_interval: 30s
+
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['bibliograph-postgres-exporter:9187']
+    scrape_interval: 30s
+
+  - job_name: 'mongodb-exporter'
+    static_configs:
+      - targets: ['bibliograph-mongodb-exporter:9216']
+    scrape_interval: 30s
+    
+  - job_name: 'celery-exporter'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['bibliograph-celery-exporter:9808']
+        labels:
+          service: 'celery-exporter'
+  # ============================================
+  # MESSAGE BROKER & STORAGE
+  # ============================================
+  
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['bibliograph-rabbitmq:15692']
+    scrape_interval: 30s
+
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['bibliograph-minio:9000']
+    metrics_path: /minio/v2/metrics/node
+    scheme: http
+    scrape_interval: 30s
+
+  # ============================================
+  # APPLICATION SERVICES
+  # ============================================
+  
+  - job_name: 'scraper-api'
+    static_configs:
+      - targets: ['bibliograph-scraper-api:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ============================================
+  # EXTERNAL MONITORING (Blackbox)
+  # ============================================
+  
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://fidibo.com
+        - https://fipa.ir
+        - https://cheshmeh.ir
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: bibliograph-blackbox-exporter:9115
