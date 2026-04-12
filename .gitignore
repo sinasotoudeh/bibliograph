@@ -86,6 +86,7 @@ processed/
 unprocessed/
 services/scraper-service/scripts/data_profiling/reports/*
 !services/scraper-service/scripts/data_profiling/reports/.gitkeep
+notebooks/
 ############################################
 # 🧠 IDE / OS
 ############################################
