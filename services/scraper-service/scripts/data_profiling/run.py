@@ -102,7 +102,7 @@ async def main():
                 profiler=profiler,
                 validator=validator,
                 scorer=scorer,
-                collection_name="books",
+                collection_name="",
                 schema_class=BookInDB,
                 sample_size=None,
                 relationship_check=books_relationship
