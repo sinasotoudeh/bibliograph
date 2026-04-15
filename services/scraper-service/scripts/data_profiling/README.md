@@ -1,353 +1,416 @@
-run command:
-cd C:\Users\sinas\bibliograph-ai\services\scraper-service
+<div align="center">
 
-docker-compose -f docker-compose.scraper.yml `
-  -f ..\..\infrastructure\docker\docker-compose.dev.yml `
-  run --rm --no-deps `
-  -v ".\scripts:/app/scripts" `
-  scraper-api `
-  python scripts/data_profiling/run.py
+# 📊 BiblioGraph AI — Data Profiling Engine
 
+**A production-grade, async MongoDB data quality analysis framework**  
+_Part of the [BiblioGraph AI](https://github.com/sinasotoudeh) microservices ecosystem_
 
-چطور Sample Size را تغییر دهیم؟
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Motor_Async-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://motor.readthedocs.io/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?style=flat-square&logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](../../LICENSE)
+[![Author](https://img.shields.io/badge/Author-Sina_Sotoudeh-blueviolet?style=flat-square)](https://sinasotoudeh.ir)
 
-# در run.py
-result = await profile_single_collection(
-    collection_name="books",
-    schema_class=BookInDB,
-    sample_size=10000,  # 🔴 تغییر از 5000 به 10000
-    # ...
-)
-
-چطور فیلدهای مهم را تغییر دهیم؟
-
-# در mongodb_profiler.py
-def _is_important_field(self, field_path: str) -> bool:
-    important_keywords = [
-        "_id", "id", "isbn", "doi",
-        "title",  # ➕ اضافه کردن
-        "email"   # ➕ اضافه کردن
-    ]
-    return any(keyword in field_path.lower() for keyword in important_keywords)
-
-
-چطور تمام دیتا را بررسی کنیم (بدون Sampling)?
-
-# در run.py
-result = await profile_single_collection(
-    collection_name="books",
-    sample_size=None,  # 🔴 None = همه document ها
-    # ...
-)
-
-review this
-
- # توضیح کامل متریک‌ها و آمار در سیستم Data Profiling
-
-این سیستم یک **پروفایلر جامع کیفیت داده** برای MongoDB است که چندین لایه تحلیل دارد.
+</div>
 
 ---
 
-## 1️⃣ **MongoDBProfiler** - متریک‌های پروفایلینگ پایه
+## 📌 Table of Contents
 
-### خروجی کلی Collection:
+- [Overview](#-overview)
+- [Architecture](#-architecture)
+- [Module Reference](#-module-reference)
+  - [MongoDBProfiler](#1️⃣-mongodbprofiler--field-level-statistical-analysis)
+  - [SchemaValidator](#2️⃣-schemavalidator--schema-drift-detection)
+  - [RelationshipChecker](#3️⃣-relationshipchecker--referential-integrity)
+  - [DataQualityScorer](#4️⃣-dataqualityscorer--composite-scoring-engine)
+  - [Streaming Stats Design](#5️⃣-streaming-stats-design--memory-efficient-primitives)
+- [Output Reports](#-output-reports)
+- [Metrics & Interpretation Guide](#-metrics--interpretation-guide)
+- [Quick Start](#-quick-start)
+- [Configuration](#️-configuration)
+- [Project Structure](#-project-structure)
+- [Author](#-author)
 
-```python
+---
+
+## 🔍 Overview
+
+The **Data Profiling Engine** is a standalone analytical subsystem inside the `scraper-service`. It performs multi-dimensional, schema-aware quality assessment of MongoDB collections without modifying any production data.
+
+### ✨ Key Capabilities
+
+- **Schema-Agnostic Structural Profiling** — discovers and statistically describes every field in a collection, including deeply nested and polymorphic ones, without prior knowledge of the schema
+- **Pydantic Schema Drift Detection** — compares live database state against declared `BookInDB` Pydantic models to surface missing, extra, or degraded fields
+- **Referential Integrity Validation** — verifies `books → authors` cross-collection relationships and detects orphaned or dangling references
+- **Memory-Efficient Streaming Statistics** — uses online algorithms (`StreamingStats`, `UniqueValueTracker`, `DateRangeTracker`) to process millions of documents without loading them into memory
+- **Composite Quality Scoring (0–100)** — produces a weighted, multi-dimensional score with actionable `critical`, `warning`, and `info` issue classification
+- **Flexible Sampling** — supports both random (`$sample` aggregation pipeline) and sequential sampling with configurable sample sizes
+- **Structured JSON Reports** — generates per-collection and summary JSON reports, suitable for CI/CD gates, dashboards, or executive reporting
+
+---
+
+## 🏗 Architecture
+
+```text
+scripts/data_profiling/
+│
+├── run.py                          # Async entrypoint & orchestration
+│
+├── profilers/
+│   ├── mongodb_profiler.py         # Core field-level statistical profiler
+│   ├── schema_validator.py         # Pydantic schema compliance checker
+│   └── relationship_checker.py     # Cross-collection referential integrity
+│
+├── analyzers/
+│   ├── quality_scorer.py           # Composite scoring engine (4 dimensions)
+│   └── anomaly_detector.py         # (Reserved for future anomaly detection)
+│
+├── utils/
+│   └── stats_tracker.py            # Memory-efficient streaming statistics
+│
+└── reports/
+    └── <run_id>/                   # Auto-generated per-run output directory
+        ├── books_profile.json
+        ├── books_schema_validation.json
+        ├── books_quality_score.json
+        └── summary_report.json
+
+```
+
+### Data Flow
+
+```text
+MongoDB Collection
+       │
+       ▼
+ MongoDBProfiler          ← Async cursor, streaming, field-level stats
+       │
+       ├──► SchemaValidator       ← Compare profile vs. BookInDB (Pydantic v2)
+       │
+       ├──► RelationshipChecker   ← books → authors referential integrity
+       │
+       └──► DataQualityScorer     ← Weighted composite score (Completeness 40%
+                                     + Validity 30% + Consistency 20%
+                                     + Integrity 10%)
+                  │
+                  └──► JSON Reports  (per-collection + summary)
+```
+
+---
+
+## 📦 Module Reference
+
+### 1️⃣ `MongoDBProfiler` — Field-Level Statistical Analysis
+
+**File:** `profilers/mongodb_profiler.py`
+
+The profiler iterates an async Motor cursor over sampled documents and maintains a `Dict[field_path, FieldMetadata]` registry. Fields from nested documents are **flattened** using dot notation (e.g., `publisher.address.city`), enabling uniform analysis regardless of nesting depth.
+
+#### Collection-Level Output
+
+```json
 {
   "collection": "books",
-  "total_documents": 10000,           # تعداد کل اسناد در collection
-  "documents_sampled": 5000,          # تعداد اسنادی که بررسی شده‌اند
-  "actual_sample_size": 5000,         # سایز نمونه واقعی
-  "sampling_method": "random",        # روش نمونه‌گیری (تصادفی یا ترتیبی)
-  "total_distinct_fields": 25,        # تعداد فیلدهای یکتای یافت شده
-  "profiled_at": "2026-01-01T10:30:00" # زمان پروفایل
+  "total_documents": 120450,
+  "documents_sampled": 10000,
+  "actual_sample_size": 10000,
+  "sampling_method": "random ($sample)",
+  "total_distinct_fields": 47,
+  "profiled_at": "2026-04-15T09:00:00.000Z"
 }
 ```
 
-### متریک‌های هر Field:
+#### Field-Level Metrics
 
-```python
-"fields": {
-  "title": {
-    "occurrence_count": 4950,        # تعداد دفعاتی که این فیلد وجود داشته
-    "occurrence_rate": 0.99,         # درصد حضور (4950/5000)
-    "missing_rate": 0.01,            # درصد غیبت (50/5000)
-    
-    "null_count": 10,                # تعداد مقادیر null
-    "null_rate": 0.002,              # درصد null نسبت به کل
-    
-    "types": {                       # توزیع انواع داده
-      "str": 4940,
-      "null": 10
-    },
-    "dominant_type": "str",          # نوع غالب
-    "type_consistency": 0.998,       # یکنواختی نوع (4940/4950)
-    
-    # برای فیلدهای رشته‌ای:
-    "empty_string_count": 5,         # تعداد رشته‌های خالی ""
-    "empty_string_rate": 0.001,      # نسبت رشته‌های خالی
-    
-    "string_length_stats": {
-      "min": 5,
-      "max": 250,
-      "avg": 45.3
-    },
-    
-    "unique_values_sample": ["Book1", "Book2", ...], # نمونه مقادیر یکتا (حداکثر 100)
-    "estimated_cardinality": 4800    # تخمین تعداد مقادیر یکتا
-  }
+Every entry inside `fields` exposes the following metrics:
+
+| Metric               | Formula                                      | Description                                                                    |
+| -------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
+| `occurrence_count`   | direct count                                 | Number of documents in the sample where this field exists                      |
+| `missing_rate`       | `1 - (occurrence_count / documents_sampled)` | Fraction of documents where the field is absent                                |
+| `null_count`         | direct count                                 | Count of explicit `null` values (distinct from absence)                        |
+| `null_rate`          | `null_count / occurrence_count`              | Rate of null among present occurrences                                         |
+| `types`              | frequency map                                | Distribution of Python types observed (`str`, `int`, `list`, `ObjectId`, etc.) |
+| `empty_string_count` | direct count                                 | Strings with value `""`                                                        |
+| `empty_string_rate`  | `empty_string_count / string_count`          | Rate of empty strings                                                          |
+
+> **`missing` vs `null`:** A `missing` field does not exist in the document at all. A `null` field exists but carries a `None` value. These are tracked separately because they imply different data quality issues.
+
+#### Type-Conditional Metrics
+
+**String fields:**
+
+```json
+"string_stats": { "count": 9840, "min": 3, "max": 312, "mean": 52.4, "std": 28.1 }
+```
+
+**Numeric fields:**
+
+```json
+"numeric_stats": { "count": 9120, "min": 1.0, "max": 9800.0, "mean": 245.3, "std": 410.7 }
+```
+
+**Datetime fields:**
+
+```json
+"date_range": { "min": "1900-01-01T00:00:00", "max": "2026-04-15T00:00:00", "range_days": 45700, "count": 9800 }
+```
+
+**Array fields:**
+
+```json
+"array_stats": {
+  "lengths": { "count": 8900, "min": 0.0, "max": 12.0, "mean": 2.1, "std": 1.4 },
+  "element_types": { "ObjectId": 18290, "null": 43 }
 }
 ```
 
-### متریک‌های خاص برای انواع مختلف:
+**Uniqueness tracking** (only for fields matching `_id`, `nlai_id`, `isbn`, `nlai_permalink`):
 
-#### **فیلدهای عددی:**
-```python
-"price": {
-  "numeric_stats": {
-    "min": 10.5,
-    "max": 250.0,
-    "mean": 89.3,
-    "median": 75.0
-  }
+```json
+"uniqueness": {
+  "unique_count": 9998,
+  "duplicate_rate": 0.02,
+  "overflow": false,
+  "total_count": 10000,
+  "sample_values": ["9789643690123", "..."]
 }
 ```
 
-#### **فیلدهای تاریخ:**
-```python
-"created_at": {
-  "date_range": {
-    "earliest": "2020-01-01T00:00:00",
-    "latest": "2026-01-01T00:00:00"
-  }
-}
-```
-
-#### **فیلدهای آرایه‌ای:**
-```python
-"author_ids": {
-  "array_length_stats": {
-    "min": 0,
-    "max": 5,
-    "avg": 1.8
-  },
-  "array_element_types": {       # انواع عناصر داخل آرایه
-    "ObjectId": 8900,
-    "null": 100
-  }
-}
-```
+> **Memory guard:** `UniqueValueTracker` caps at `10,000` unique values per field. Once exceeded, `overflow: true` is set and duplicate rate becomes `null` rather than producing a misleading result.
 
 ---
 
-## 2️⃣ **RelationshipChecker** - متریک‌های یکپارچگی روابط
+### 2️⃣ `SchemaValidator` — Schema Drift Detection
 
-### Book-Author Integrity:
+**File:** `profilers/schema_validator.py`
 
-```python
+Compares the live profiling results against a **Pydantic v2** model class using `model_fields` introspection. No database query is issued — it operates purely on the profile dict.
+
+#### Output
+
+```json
+{
+  "collection": "books",
+  "schema_class": "BookInDB",
+  "compliance_score": 88.5,
+  "required_fields_count": 8,
+  "optional_fields_count": 12,
+  "missing_required_fields": ["isbn"],
+  "high_missing_rate_fields": [
+    {
+      "field": "publication_year",
+      "missing_rate": 0.27,
+      "severity": "critical"
+    }
+  ],
+  "extra_fields_in_db": ["legacy_nlai_code", "temp_scrape_flag"]
+}
+```
+
+#### Compliance Score Formula
+
+$$\text{compliance\_score} = \max\!\left(0,\; 100 - \frac{|\text{missing\_required}| + |\text{high\_missing\_rate}|}{|\text{required\_fields}|} \times 100\right)$$
+
+#### Severity Thresholds
+
+| Missing Rate       | Severity   |
+| ------------------ | ---------- |
+| `> 5%` and `≤ 20%` | `warning`  |
+| `> 20%`            | `critical` |
+
+> **`extra_fields_in_db`** are fields present in MongoDB but absent from the Pydantic schema. These are not penalised in the score but are surfaced as potential schema drift or technical debt indicators.
+
+---
+
+### 3️⃣ `RelationshipChecker` — Referential Integrity
+
+**File:** `profilers/relationship_checker.py`
+
+Performs full cross-collection scans to verify referential integrity. Currently supports two checks:
+
+#### Check 1: `books → authors`
+
+Validates that every `ObjectId` in a book's `author_ids` array resolves to an existing document in the `authors` collection.
+
+```json
 {
   "relationship": "books → authors",
-  "integrity_score": 85.5,           # امتیاز یکپارچگی (0-100)
-  
-  "total_books": 10000,
-  "total_authors": 3500,
-  
-  # کتاب‌های بدون نویسنده:
-  "orphan_books_count": 250,
-  "orphan_rate": 0.025,              # 2.5% کتاب‌ها نویسنده ندارند
-  
-  # کتاب‌هایی با رفرنس اشتباه:
-  "books_with_invalid_authors": 100,
-  "invalid_author_references_count": 150,
-  "invalid_rate": 0.01,              # 1% رفرنس‌های نامعتبر
-  
-  "sample_orphan_books": ["id1", "id2", ...],
+  "integrity_score": 91.5,
+  "total_books": 120450,
+  "total_authors": 8200,
+  "orphan_books_count": 1820,
+  "orphan_rate": 0.0151,
+  "books_with_invalid_authors": 430,
+  "invalid_author_references_count": 512,
+  "invalid_rate": 0.0036,
+  "sample_orphan_books": ["66abc..."],
   "sample_invalid_references": [
-    {
-      "book_id": "66abc...",
-      "invalid_author_id": "55xyz..."
-    }
+    { "book_id": "...", "invalid_author_id": "..." }
   ]
 }
 ```
 
-**فرمول Integrity Score:**
-```python
-integrity_score = 100 - (orphan_rate × 50 + invalid_rate × 50)
-```
+$$\text{integrity\_score} = 100 - (\text{orphan\_rate} \times 50 + \text{invalid\_rate} \times 50)$$
 
-### Scraping Log Integrity:
+#### Check 2: `scraping_logs` internal consistency
 
-```python
-{
-  "collection": "scraping_logs",
-  "integrity_score": 92.0,
-  
-  "total_logs": 5000,
-  "logs_without_task_id": 200,
-  "missing_task_id_rate": 0.04,     # 4% بدون task_id
-  
-  "duplicate_task_ids_count": 50,
-  "duplicate_rate": 0.01,            # 1% تکراری
-  
-  "unique_task_ids": 4750
-}
-```
+Validates that every log entry has a `task_id` and that task IDs are unique.
 
-**فرمول Integrity Score:**
-```python
-integrity_score = 100 - (missing_task_id_rate × 60 + duplicate_rate × 40)
-```
+$$\text{integrity\_score} = 100 - (\text{missing\_task\_id\_rate} \times 60 + \text{duplicate\_rate} \times 40)$$
+
+| Score     | Status      |
+| --------- | ----------- |
+| `≥ 90`    | ✅ Healthy  |
+| `70 – 89` | ⚠️ Warning  |
+| `< 70`    | ❌ Critical |
+
+> **Note:** In the current `run.py` configuration, `RelationshipChecker` is **intentionally disabled** (`books_relationship = None`) for books-only runs to prevent false positives when the authors collection is not available in scope. Pass the checker result to `DataQualityScorer` to activate the `integrity` dimension.
 
 ---
 
-## 3️⃣ **SchemaValidator** - متریک‌های انطباق با Schema
+### 4️⃣ `DataQualityScorer` — Composite Scoring Engine
 
-```python
+**File:** `analyzers/quality_scorer.py`
+
+Aggregates results from all three upstream components into a single, weighted quality score.
+
+#### Overall Score Formula
+
+$$\text{overall\_score} = C \times 0.40 + V \times 0.30 + K \times 0.20 + I \times 0.10$$
+
+Where:
+
+| Symbol | Dimension        | Weight | Source                |
+| ------ | ---------------- | ------ | --------------------- |
+| $C$    | **Completeness** | 40%    | `MongoDBProfiler`     |
+| $V$    | **Validity**     | 30%    | `SchemaValidator`     |
+| $K$    | **Consistency**  | 20%    | `MongoDBProfiler`     |
+| $I$    | **Integrity**    | 10%    | `RelationshipChecker` |
+
+#### Dimension Calculations
+
+**Completeness** — measures field population rate across all fields:
+
+$$C = \left(1 - \frac{\sum_{f \in \text{fields}} \text{missing\_rate}(f)}{|\text{fields}|}\right) \times 100$$
+
+**Validity** — directly sourced from `SchemaValidator.compliance_score`:
+
+$$V = \text{compliance\_score}$$
+
+**Consistency** — measures type uniformity and absence of empty strings per field:
+
+$$K_f = \left(\frac{\max(\text{type\_counts})}{\sum(\text{type\_counts})} \times 0.7 + (1 - \text{empty\_string\_rate}) \times 0.3\right) \times 100$$
+
+$$K = \frac{\sum_{f} K_f}{|\text{fields}|}$$
+
+**Integrity** — sourced from `RelationshipChecker`, defaults to `100` when disabled:
+
+$$I = \text{integrity\_score} \quad (\text{or } 100 \text{ if checker not run})$$
+
+#### Grading Scale
+
+| Score      | Grade             | Action                             |
+| ---------- | ----------------- | ---------------------------------- |
+| `90 – 100` | **A — Excellent** | ✅ No action required              |
+| `80 – 89`  | **B — Good**      | 🔍 Monitor flagged fields          |
+| `70 – 79`  | **C — Fair**      | ⚠️ Address warnings in next sprint |
+| `60 – 69`  | **D — Poor**      | 🔴 Schedule data repair task       |
+| `< 60`     | **F — Critical**  | 🚨 Immediate intervention required |
+
+#### Sample Output
+
+```json
 {
   "collection": "books",
-  "schema_class": "BookInDB",
-  "compliance_score": 88.5,          # امتیاز انطباق (0-100)
-  
-  "required_fields_count": 8,        # تعداد فیلدهای اجباری در schema
-  "optional_fields_count": 12,       # تعداد فیلدهای اختیاری
-  
-  # فیلدهای اجباری که در DB نیستند:
-  "missing_required_fields": ["isbn", "publisher"],
-  
-  # فیلدهای اجباری با missing rate بالا:
-  "high_missing_rate_fields": [
-    {
-      "field": "title",
-      "missing_rate": 0.15,          # 15% از اسناد ندارند
-      "severity": "warning"          # یا "critical" اگر >20%
-    }
-  ],
-  
-  # فیلدهای اضافی در DB که در schema نیستند:
-  "extra_fields_in_db": ["legacy_id", "temp_field"]
-}
-```
-
-**فرمول Compliance Score:**
-```python
-issues_count = len(missing_required) + len(high_missing_rate)
-compliance_score = max(0, 100 - (issues_count / total_required × 100))
-```
-
----
-
-## 4️⃣ **DataQualityScorer** - امتیاز کیفیت جامع
-
-### Overall Score (وزن‌دار از 4 بُعد):
-
-```python
-{
-  "collection": "books",
-  "overall_score": 82.3,             # امتیاز کلی (0-100)
-  "grade": "B (Good)",               # رتبه‌بندی
-  
+  "overall_score": 83.7,
+  "grade": "B (Good)",
   "dimensions": {
-    "completeness": {                # میزان پر بودن فیلدها
-      "score": 85.0,
-      "weight": "40%"
-    },
-    "validity": {                    # مطابقت با schema
-      "score": 88.5,
-      "weight": "30%"
-    },
-    "consistency": {                 # یکنواختی داده‌ها
-      "score": 75.0,
-      "weight": "20%"
-    },
-    "integrity": {                   # صحت روابط
-      "score": 80.0,
-      "weight": "10%"
-    }
+    "completeness": { "score": 87.2, "weight": "40%" },
+    "validity": { "score": 88.5, "weight": "30%" },
+    "consistency": { "score": 74.1, "weight": "20%" },
+    "integrity": { "score": 100.0, "weight": "10%" }
+  },
+  "issues_summary": {
+    "critical": ["Field 'publication_year' has 27.0% missing rate"],
+    "warnings": ["Field 'description' has 12.0% missing rate"],
+    "info": []
   }
 }
 ```
 
-**فرمول Overall Score:**
-```python
-overall_score = (
-    completeness × 0.40 +
-    validity × 0.30 +
-    consistency × 0.20 +
-    integrity × 0.10
-)
-```
+---
 
-### محاسبه هر بُعد:
+### 5️⃣ Streaming Stats Design — Memory-Efficient Primitives
 
-#### **1. Completeness (40%):**
-```python
-# میانگین missing_rate تمام فیلدها
-avg_missing = sum(field.missing_rate for field in fields) / len(fields)
-completeness = (1 - avg_missing) × 100
-```
+**File:** `utils/stats_tracker.py`
 
-#### **2. Validity (30%):**
-```python
-# مستقیماً از SchemaValidator می‌آید
-validity = schema_validation.compliance_score
-```
+All statistical accumulation is performed using **online algorithms** — documents are processed once, streamed, and never held in memory as a batch. This enables profiling collections of any size within a constant memory footprint.
 
-#### **3. Consistency (20%):**
-```python
-# برای هر فیلد:
-type_consistency = dominant_type_count / total_count
-empty_score = 1 - empty_string_rate
-field_score = (type_consistency × 0.7 + empty_score × 0.3) × 100
+#### `StreamingStats`
 
-# میانگین تمام فیلدها:
-consistency = mean(field_scores)
-```
+Computes `min`, `max`, `mean`, and `std` using Welford-style accumulation:
 
-#### **4. Integrity (10%):**
-```python
-# از RelationshipChecker می‌آید (اگر موجود باشد، وگرنه 100)
-integrity = relationship_check.integrity_score
-```
+$$\mu = \frac{\sum x_i}{n}, \quad \sigma = \sqrt{\frac{\sum x_i^2}{n} - \mu^2}$$
 
-### رتبه‌بندی (Grade):
-- **A (Excellent)**: 90-100
-- **B (Good)**: 80-89
-- **C (Fair)**: 70-79
-- **D (Poor)**: 60-69
-- **F (Critical)**: 0-59
+Used for: string lengths, numeric values, array lengths.
 
-### خلاصه مشکلات:
+#### `UniqueValueTracker`
+
+Maintains a Python `set` with a configurable cap (`max_unique = 1,000` per tracker, `10,000` per field in the profiler). Once the cap is exceeded, `overflow = True` is set and `duplicate_rate` is reported as `null` to avoid misleading results.
+
+#### `DateRangeTracker`
+
+Tracks `min_date` and `max_date` using simple comparison — $O(1)$ per document, $O(1)$ space.
+
+#### `FieldMetadata`
+
+The composite container class aggregating all trackers for a single field path:
 
 ```python
-"issues_summary": {
-  "critical": [
-    "2 required fields missing in DB",
-    "5.0% of records have invalid references"
-  ],
-  "warnings": [
-    "Field 'description' has 15.0% missing rate",
-    "10.5% of records are orphaned"
-  ],
-  "info": []
-}
+class FieldMetadata:
+    occurrence_count: int
+    null_count: int
+    empty_string_count: int
+    types: defaultdict(int)        # type distribution
+    string_lengths: StreamingStats
+    numeric_values: StreamingStats
+    date_range: DateRangeTracker
+    array_lengths: StreamingStats
+    array_element_types: defaultdict(int)
+    unique_tracker: UniqueValueTracker
 ```
+
+> **`safe_add_unique()` guard:** The profiler wraps all `UniqueValueTracker.add()` calls in a `try/except TypeError` block to safely handle tracker objects that do not implement `__len__`, preventing crashes on custom wrapper classes.
 
 ---
 
-## 5️⃣ **Summary Report** - گزارش نهایی
+## 📁 Output Reports
 
-```python
+Each run generates a timestamped directory under `reports/<YYYYMMDD_HHMMSS>/`:
+
+| File                           | Contents                                               |
+| ------------------------------ | ------------------------------------------------------ |
+| `books_profile.json`           | Full field-level statistical profile of the collection |
+| `books_schema_validation.json` | Schema drift report vs. `BookInDB`                     |
+| `books_quality_score.json`     | 4-dimensional quality score with issues summary        |
+| `summary_report.json`          | Aggregated overview for dashboards/CI                  |
+
+#### `summary_report.json` structure
+
+```json
 {
   "metadata": {
-    "started_at": "2026-01-01T10:00:00",
-    "duration_seconds": 125.5,
+    "started_at": "2026-04-15T09:00:00",
+    "duration_seconds": 184.32,
     "scope": "books_only"
   },
   "results": {
     "books": {
-      "docs": 10000,
-      "score": 82.3,
+      "docs": 120450,
+      "score": 83.7,
       "grade": "B (Good)"
     }
   }
@@ -356,422 +419,202 @@ integrity = relationship_check.integrity_score
 
 ---
 
-## 📊 تفسیر عملی:
+## 📊 Metrics & Interpretation Guide
 
-- **occurrence_rate < 0.95** → فیلد مشکل دارد
-- **null_rate > 0.10** → 10% null - نیاز به بررسی
-- **type_consistency < 0.90** → نوع داده یکنواخت نیست
-- **empty_string_rate > 0.05** → رشته‌های خالی زیاد
-- **orphan_rate > 0.10** → 10% بدون رابطه - مشکل جدی
-- **overall_score < 70** → کیفیت داده پایین - نیاز به اقدام فوری
+Use this table as a quick reference when reviewing output reports:
 
-
-or read this
-
----
-
-## 1️⃣ MongoDBProfiler – متریک‌های پروفایل داده
-
-این بخش **واقعیت داده‌های موجود در MongoDB** را بدون توجه به schema بررسی می‌کند.
-
-### ✅ متریک‌های سطح Collection
-
-در فایل `<collection>_profile.json`:
-
-| فیلد | معنی |
-|-----|-----|
-| `collection` | نام collection |
-| `total_documents` | تعداد کل اسناد در MongoDB |
-| `documents_sampled` | تعداد واقعی اسنادی که بررسی شده‌اند |
-| `actual_sample_size` | min(sample_size, total_documents) |
-| `sampling_method` | `random ($sample)` یا `sequential` |
-| `total_distinct_fields` | تعداد فیلدهای یکتای شناسایی‌شده (flatten شده) |
-| `profiled_at` | زمان اجرای profiling (UTC) |
-
-📌 **نکته مهم**  
-فیلدها به صورت **flatten** ذخیره می‌شوند:
-```json
-author.name
-author.birth_date
-publisher.address.city
-```
+| Metric                            | Healthy | Warning     | Critical |
+| --------------------------------- | ------- | ----------- | -------- |
+| `missing_rate` (required field)   | `< 5%`  | `5% – 20%`  | `> 20%`  |
+| `null_rate`                       | `< 5%`  | `5% – 10%`  | `> 10%`  |
+| `empty_string_rate`               | `< 2%`  | `2% – 5%`   | `> 5%`   |
+| `type_consistency`                | `> 95%` | `90% – 95%` | `< 90%`  |
+| `orphan_rate` (books w/o authors) | `< 3%`  | `3% – 10%`  | `> 10%`  |
+| `invalid_rate` (bad references)   | `< 1%`  | `1% – 5%`   | `> 5%`   |
+| `overall_score`                   | `≥ 80`  | `70 – 79`   | `< 70`   |
 
 ---
 
-### ✅ متریک‌های سطح Field (مهم‌ترین بخش)
+## 🚀 Quick Start
 
-هر ورودی داخل `fields` یک فیلد دیتابیس است.
+### Prerequisites
 
-### 1. `occurrence_count`
+- Docker & Docker Compose installed
+- The `bibliograph-network` external Docker network exists
+- A running MongoDB instance accessible from the network
 
-```json
-"occurrence_count": 4321
+### Run via Docker (Recommended)
+
+From the **repository root** (`bibliograph-ai/`):
+
+```bash
+cd services/scraper-service
+
+docker-compose -f docker-compose.scraper.yml \
+  -f ../../infrastructure/docker/docker-compose.dev.yml \
+  run --rm --no-deps \
+  -v "$(pwd)/scripts:/app/scripts" \
+  scraper-api \
+  python scripts/data_profiling/run.py
 ```
 
-**معنی:**  
-این فیلد در چند سند از نمونه دیده شده است.
+> **Windows (PowerShell):**
+>
+> ```powershell
+> cd C:\Users\sinas\bibliograph-ai\services\scraper-service
+>
+> docker-compose -f docker-compose.scraper.yml `
+>   -f ..\..\infrastructure\docker\docker-compose.dev.yml `
+>   run --rm --no-deps `
+>   -v ".\scripts:/app/scripts" `
+>   scraper-api `
+>   python scripts/data_profiling/run.py
+> ```
 
-📌 اگر:
-- `occurrence_count < documents_sampled` → فیلد اختیاری یا داده ناقص
-- `occurrence_count ≈ documents_sampled` → فیلد پایدار
+### Environment Setup
+
+The script resolves environment variables in the following priority order:
+
+1. `scripts/data_profiling/.env.profiler` _(profiling-specific overrides)_
+2. `services/scraper-service/.env` _(service-wide defaults)_
+
+A minimal `.env.profiler`:
+
+```env
+MONGODB_URI=mongodb://user:pass@host:27017
+MONGODB_DB_NAME=bibliograph_db
+```
 
 ---
 
-### 2. `missing_rate`
+## ⚙️ Configuration
 
-```json
-"missing_rate": 0.134
-```
+### Changing Sample Size
 
-**فرمول:**
-```
-1 - (occurrence_count / documents_sampled)
-```
+In `run.py`, modify the `sample_size` parameter:
 
-**معنی:**  
-در چه درصدی از اسناد، این فیلد وجود نداشته یا null بوده است.
+python
 
-| مقدار | تفسیر |
-|-----|-----|
-| < 5% | عالی |
-| 5–20% | هشدار |
-| > 20% | بحرانی (برای required ها) |
+# Profile 10,000 random documents
 
----
+result = await profile_single_collection(
+profiler=profiler,
+validator=validator,
+scorer=scorer,
+collection_name="books",
+schema_class=BookInDB,
+sample_size=10000, # ← change here
+relationship_check=None
+)
 
-### 3. `null_count`
-
-```json
-"null_count": 220
-```
-
-**معنی:**  
-چند بار مقدار field صراحتاً `null` بوده (نه missing).
-
-📌 تفاوت مهم:
-- missing = فیلد وجود ندارد
-- null = فیلد وجود دارد ولی مقدار ندارد
-
----
-
-### 4. `types`
-
-```json
-"types": {
-  "str": 4100,
-  "int": 120,
-  "null": 220
-}
-```
-
-**معنی:**  
-توزیع نوع داده‌ای که واقعاً در DB ذخیره شده.
-
-📌 کاربرد:
-- تشخیص type drift
-- محاسبه consistency
-
----
-
-### 5. `unique_count` (غیرمستقیم)
-
-از طریق:
 ```python
-meta.unique_tracker
+# Profile ALL documents (no sampling)
+result = await profile_single_collection(
+    ...
+    sample_size=None,           # ← None = full scan
+    ...
+)
 ```
 
-**معنی:**  
-تعداد مقادیر یکتای فیلد (با سقف 10,000).
+### Adding Important Fields for Uniqueness Tracking
 
-📌 فقط برای فیلدهای مهم:
-- `_id`, `isbn`, `doi`, `code`, `key`
+In `mongodb_profiler.py`, extend the keyword list:
 
----
-
-### 6. متریک‌های متنی (String)
-
-#### `string_length_stats`
-(از `string_lengths`)
-
-- min
-- max
-- avg
-
-📌 برای:
-- تشخیص truncate شدن
-- تشخیص داده‌های غیرعادی
-
----
-
-#### `empty_string_count` + `empty_string_rate`
-
-```json
-"empty_string_rate": 0.08
-```
-
-**معنی:**  
-چند درصد stringها مقدار `""` دارند (داده بد).
-
----
-
-### 7. متریک‌های عددی (Numeric)
-
-از `numeric_values`:
-
-- min
-- max
-- avg
-
-📌 برای کشف:
-- outlier
-- مقدارهای غیرمنطقی
-
----
-
-### 8. متریک‌های تاریخ (Datetime)
-
-```json
-"date_range": {
-  "min": "1992-01-01",
-  "max": "2024-05-12"
-}
-```
-
-📌 کاربرد:
-- sanity check
-- کشف داده‌های future یا ancient
-
----
-
-### 9. آرایه‌ها (Array)
-
-#### `array_lengths`
-- min, max, avg طول آرایه
-
-#### `array_element_types`
-```json
-{
-  "ObjectId": 980,
-  "null": 10,
-  "str": 3
-}
-```
-
-📌 برای تشخیص:
-- آرایه ناهمگون
-- داده خراب (mixed types)
-
----
-
-## 2️⃣ RelationshipChecker – متریک‌های یکپارچگی رابطه
-
-### ✅ books → authors
-
-در خروجی:
-
-### 1. `total_books`, `total_authors`
-
-تعداد رکوردها در هر collection.
-
----
-
-### 2. `orphan_books_count`
-
-**کتاب‌هایی که:**
 ```python
-author_ids == []
+def _is_important_field(self, field_path: str) -> bool:
+    important_keywords = [
+        "_id", "nlai_id", "isbn", "nlai_permalink",
+        "doi",    # ← add custom identifiers here
+        "oclc_id"
+    ]
+    return any(keyword in field_path.lower() for keyword in important_keywords)
 ```
 
-یا اصلاً وجود ندارد.
+### Enabling Relationship Checks
 
-📌 خطرناک برای:
-- recommendation
-- analytics
-- joins
+In `run.py`, uncomment the checker section:
 
----
+```python
+from profilers.relationship_checker import RelationshipChecker
 
-### 3. `orphan_rate`
+checker = RelationshipChecker(mongodb_client)
+books_relationship = await checker.check_book_author_integrity()
 
-```json
-0.12
+result = await profile_single_collection(
+    ...
+    relationship_check=books_relationship   # ← pass here
+)
 ```
 
-➡️ 12٪ کتاب‌ها بدون نویسنده‌اند.
+### Adjusting the Unique Value Cap
+
+In `stats_tracker.py`:
+
+```python
+class UniqueValueTracker:
+    def __init__(self, max_unique: int = 1000):   # ← default per tracker
+        ...
+```
+
+In `mongodb_profiler.py`:
+
+```python
+self.MAX_UNIQUE_TRACKING = 10000   # ← global cap per field in profiler
+```
 
 ---
 
-### 4. `books_with_invalid_authors`
-
-کتاب‌هایی که حداقل یک author_id نامعتبر دارند.
-
----
-
-### 5. `invalid_author_references_count`
-
-**تعداد کل referenceهای خراب**  
-(مهم‌تر از count کتاب)
-
----
-
-### 6. `integrity_score`
+## 📂 Project Structure
 
 ```text
-100 - (orphan_rate*50 + invalid_rate*50)
+scripts/data_profiling/
+│
+├── run.py                              # Async orchestration entrypoint
+│
+├── profilers/
+│   ├── mongodb_profiler.py             # Async field-level profiler (Motor)
+│   ├── schema_validator.py             # Pydantic v2 schema drift detection
+│   └── relationship_checker.py         # Cross-collection integrity checker
+│
+├── analyzers/
+│   ├── quality_scorer.py               # Weighted composite scoring engine
+│   └── anomaly_detector.py             # (Reserved)
+│
+├── utils/
+│   └── stats_tracker.py                # StreamingStats, UniqueValueTracker,
+│                                       # DateRangeTracker, FieldMetadata
+│
+├── reports/                            # Auto-generated, gitignored
+│   └── <run_id>/
+│       ├── books_profile.json
+│       ├── books_schema_validation.json
+│       ├── books_quality_score.json
+│       └── summary_report.json
+│
+├── .env.profiler                       # Local env overrides (gitignored)
+└── README.md                           # This file
 ```
 
-| Score | وضعیت |
-|-----|-----|
-| >90 | سالم |
-| 70–90 | هشدار |
-| <70 | خطرناک |
+---
+
+## 👤 Author
+
+<div align="center">
+
+**Sina Sotoudeh**  
+_Backend Engineer & Data Systems Developer_
+
+[![Website](https://img.shields.io/badge/Website-sinasotoudeh.ir-0A66C2?style=flat-square&logo=safari&logoColor=white)](https://sinasotoudeh.ir)
+[![GitHub](https://img.shields.io/badge/GitHub-sinasotoudeh-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/sinasotoudeh)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-sinasotoudeh-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://linkedin.com/in/sinasotoudeh)
+[![Email](https://img.shields.io/badge/Email-s.sotoudeh1%40gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white)](mailto:s.sotoudeh1@gmail.com)
+
+_Part of the **BiblioGraph AI** project — a microservices platform for bibliographic data acquisition, enrichment, and analysis._
+
+</div>
 
 ---
 
-## 3️⃣ SchemaValidator – متریک‌های انطباق با Schema
-
-### ✅ compliance_score
-
-```json
-"compliance_score": 78.4
-```
-
-**یعنی:**  
-چه درصدی از required fieldها واقعاً درست و پایدارند.
-
-📌 محاسبه:
-- missing required
-- required با missing_rate > 5%
-
----
-
-### ✅ missing_required_fields
-
-```json
-["isbn", "title"]
-```
-
-❌ این‌ها اصلاً در DB وجود ندارند.
-
----
-
-### ✅ high_missing_rate_fields
-
-```json
-{
-  "field": "published_year",
-  "missing_rate": 0.27,
-  "severity": "critical"
-}
-```
-
-📌 Required هست، ولی داده ندارد → داده **غیرقابل اعتماد**
-
----
-
-### ✅ extra_fields_in_db
-
-فیلدهایی که:
-- در MongoDB هستند
-- ولی در Pydantic Schema تعریف نشده‌اند
-
-📌 نشانه:
-- schema drift
-- technical debt
-
----
-
-## 4️⃣ DataQualityScorer – امتیاز کیفیت داده (0–100)
-
-### ✅ overall_score
-
-میانگین وزنی:
-
-| بعد | وزن |
-|---|---|
-| Completeness | 40% |
-| Validity | 30% |
-| Consistency | 20% |
-| Integrity | 10% |
-
----
-
-### 1️⃣ Completeness
-
-```text
-(1 - avg_missing_rate) * 100
-```
-
-📌 فقط based on profiling (نه schema).
-
----
-
-### 2️⃣ Validity
-
-همان `compliance_score` از SchemaValidator.
-
----
-
-### 3️⃣ Consistency
-
-برای هر فیلد:
-
-- **Type uniformity (70%)**
-- **Empty string rate (30%)**
-
-📌 mixed types → امتیاز پایین
-
----
-
-### 4️⃣ Integrity
-
-از RelationshipChecker  
-(اگر غیرفعال → 100)
-
----
-
-### ✅ grade
-
-| Score | Grade |
-|---|---|
-| ≥90 | A |
-| 80–89 | B |
-| 70–79 | C |
-| 60–69 | D |
-| <60 | F |
-
----
-
-### ✅ issues_summary
-
-```json
-{
-  "critical": [...],
-  "warnings": [...],
-  "info": [...]
-}
-```
-
-📌 خلاصه مدیریتی قابل ارسال به PM / CTO
-
----
-
-## 5️⃣ Summary Report (run.py)
-
-در `summary_report.json`:
-
-```json
-{
-  "docs": 120450,
-  "score": 82.3,
-  "grade": "B (Good)"
-}
-```
-
-📌 مناسب برای:
-- داشبورد
-- CI/CD data quality checks
-- alerting
-
----
-
+<div align="center">
+<sub>BiblioGraph AI · Scraper Service · Data Profiling Engine</sub>
+</div>
